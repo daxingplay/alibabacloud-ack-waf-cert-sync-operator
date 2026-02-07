@@ -35,25 +35,31 @@ Pre-built images are published to **GitHub Container Registry (GHCR)** via [GitH
 
 ```json
 {
-    "Version": "1",
-    "Statement": [
-        {
-            "Action": [
-              "cas:ListUserCertificateOrder",
-              "waf-openapi:ModifyCloudResource",
-              "waf-openapi:CreateCerts"
-            ],
-            "Resource": "*",
-            "Effect": "Allow"
-        }
-    ]
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "yundun-cert:ListUserCertificateOrder",
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "yundun-waf:ModifyCloudResource",
+        "yundun-waf:CreateCerts"
+      ],
+      "Resource": "*"
+    }
+  ]
 }
 
 ```
 
-## 🔐 Permissions Setup
+---
 
-### 1. Kubernetes RBAC
+## 📦 Installation
+
+### 1. Configure the ServiceAccount and Permission
 
 The operator needs permission to `watch` and `get` the specific Secret it is protecting. We use a **Role** (instead of a ClusterRole) to limit access to a single namespace.
 
@@ -66,7 +72,7 @@ metadata:
   namespace: your_namespace
   annotations:
     # LINK TO ALIBABA RAM ROLE (RRSA)
-    ram.aliyuncs.com/role-arn: "acs:ram::1234567890:role/WAFCertSyncRole"
+    pod-identity.alibabacloud.com/role-name: role_name
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -92,25 +98,6 @@ roleRef:
   kind: Role
   name: cert-sync-role
   apiGroup: rbac.authorization.k8s.io
-
-```
-
----
-
-## 📦 Installation
-
-### 1. Configure the ServiceAccount
-
-Replace the `role-arn` with your actual RAM Role ARN.
-
-```yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: cert-sync-sa
-  namespace: your_namespace
-  annotations:
-    ram.aliyuncs.com/role-arn: "acs:ram::1234567890:role/YourWAFSyncRole"
 
 ```
 
