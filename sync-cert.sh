@@ -90,8 +90,12 @@ else
   # 4. Construct WAF-specific Certificate ID (e.g., "xxxx-cn-hangzhou")
   WAF_CERT_ID="${CERT_ID}-${ALIBABA_REGION_ID}"
 
-  # 5. Build WAF Listen JSON payload
-  # We use jq to handle numeric/boolean/string types correctly for the API
+  # 5. Build WAF Listen JSON payload (defaults for optional listener settings)
+  TLS_VERSION="${TLS_VERSION:-tlsv1.2}"
+  ENABLE_TLS_V3="${ENABLE_TLS_V3:-true}"
+  CIPHER_SUITE="${CIPHER_SUITE:-2}"
+  PROTOCOL="${PROTOCOL:-https}"
+  HTTP2_ENABLED="${HTTP2_ENABLED:-true}"
   LISTEN_JSON=$(jq -n \
     --arg tls "$TLS_VERSION" \
     --argjson tls3 "$ENABLE_TLS_V3" \
