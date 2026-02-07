@@ -145,13 +145,17 @@ spec:
               value: "waf_v2_public_cn-lbxxxxxx"
             - name: ALIBABA_CLB_ID
               value: "lb-xxxx"
-            # WAF Listener Settings
+            # WAF Listener Settings (optional; defaults shown)
             - name: TLS_VERSION
               value: "tlsv1.2"
             - name: ENABLE_TLS_V3
               value: "true"
             - name: CIPHER_SUITE
               value: "2"
+            - name: PROTOCOL
+              value: "https"
+            - name: HTTP2_ENABLED
+              value: "true"
 
 ```
 
@@ -184,8 +188,11 @@ When using **ack-pod-identity-webhook** with `pod-identity.alibabacloud.com/inje
 | `ALIBABA_REGION_ID` | Alibaba Cloud Region | `cn-hangzhou` |
 | `ALIBABA_WAF_INSTANCE_ID` | Your WAF Instance ID | `waf_v2_...` |
 | `ALIBABA_CLB_ID` | The CLB Resource ID in WAF | `lb-xxxx` |
-| `TLS_VERSION` | Min TLS Version for WAF | `tlsv1.2` |
-| `CIPHER_SUITE` | WAF Cipher Suite ID | `2` |
+| `TLS_VERSION` | Min TLS version for WAF listener (optional) | `tlsv1.2` |
+| `ENABLE_TLS_V3` | Enable TLS 1.3 (optional, JSON boolean) | `true` |
+| `CIPHER_SUITE` | WAF cipher suite ID (optional) | `2` |
+| `PROTOCOL` | Listener protocol (optional) | `https` |
+| `HTTP2_ENABLED` | Enable HTTP/2 (optional, JSON boolean) | `true` |
 
 ---
 
