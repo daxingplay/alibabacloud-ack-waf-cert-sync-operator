@@ -10,8 +10,9 @@ kubernetes:
   nameSelector:
     matchNames: [ "${SYNC_SECRET_NAME}" ]
   namespace:
-    nameSelector: [ "${SYNC_SECRET_NAMESPACE}" ]
-  executeHookOnEvent: [ "Update", "Added" ]
+    nameSelector:
+      matchNames: [ "${SYNC_SECRET_NAMESPACE}" ]
+  executeHookOnEvent: [ "Added", "Modified" ]
 EOF
 else
   echo "--- Start Sync: Secret ${SYNC_SECRET_NAMESPACE}/${SYNC_SECRET_NAME} ---"
