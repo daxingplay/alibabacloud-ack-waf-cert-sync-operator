@@ -90,14 +90,34 @@ else
   # 4. Construct WAF-specific Certificate ID (e.g., "xxxx-cn-hangzhou")
   WAF_CERT_ID="${CERT_ID}-${ALIBABA_REGION_ID}"
 
-  # 5. Build WAF Listen JSON payload. ResourceProduct (e.g. clb4) and Port are required by the API.
+  # Listener parameters (defaults)
+  RESOURCE_PRODUCT="${RESOURCE_PRODUCT:-clb4}"
+  PORT="${PORT:-443}"
+  PROTOCOL="${PROTOCOL:-https}"
+
+  # 5. Check current WAF listener cert; skip ModifyCloudResource if already up to date
+  PORT_DETAILS=$(aliyun waf-openapi DescribeCloudResourceAccessPortDetails \
+    --region "${ALIBABA_REGION_ID}" \
+    --InstanceId "${ALIBABA_WAF_INSTANCE_ID}" \
+    --ResourceInstanceId "${ALIBABA_CLB_ID}" \
+    --Port "${PORT}" \
+    --Protocol "${PROTOCOL}" \
+    --ResourceProduct "${RESOURCE_PRODUCT}" 2> >(sed 's/\x1b\[[0-9;]*m//g' >&2)) || {
+    echo "ERROR: aliyun DescribeCloudResourceAccessPortDetails failed." >&2
+    exit 1
+  }
+  CURRENT_CERT_ID=$(echo "$PORT_DETAILS" | jq -r '.AccessPortDetails[0].Certificates[0].CertificateId // empty')
+  if [[ -n "$CURRENT_CERT_ID" && "$CURRENT_CERT_ID" == "$WAF_CERT_ID" ]]; then
+    echo "WAF listener already uses certificate ${WAF_CERT_ID}, skipping update."
+    echo "Sync process finished successfully."
+    exit 0
+  fi
+
+  # 6. Build WAF Listen JSON payload and execute ModifyCloudResource
   TLS_VERSION="${TLS_VERSION:-tlsv1.2}"
   ENABLE_TLS_V3="${ENABLE_TLS_V3:-true}"
   CIPHER_SUITE="${CIPHER_SUITE:-2}"
-  PROTOCOL="${PROTOCOL:-https}"
   HTTP2_ENABLED="${HTTP2_ENABLED:-true}"
-  RESOURCE_PRODUCT="${RESOURCE_PRODUCT:-clb4}"
-  PORT="${PORT:-443}"
   LISTEN_JSON=$(jq -n \
     --arg tls "$TLS_VERSION" \
     --argjson tls3 "$ENABLE_TLS_V3" \
@@ -120,7 +140,6 @@ else
       Port: $port
     }')
 
-  # 6. Execute WAF Update using waf-openapi. Strip ANSI from aliyun stderr so shell-operator JSON log does not break.
   echo "Updating WAF Cloud Resource for CLB: ${ALIBABA_CLB_ID}..."
   aliyun waf-openapi ModifyCloudResource \
     --region "${ALIBABA_REGION_ID}" \
