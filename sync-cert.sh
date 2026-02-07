@@ -54,9 +54,9 @@ else
   LOCAL_FP=$(openssl x509 -noout -fingerprint -sha1 -in /tmp/tls.crt | sed 's/://g' | cut -d'=' -f2 | tr '[:lower:]' '[:upper:]')
   echo "Local Certificate Fingerprint: ${LOCAL_FP}"
 
-  # 3. Search for existing cert in Alibaba CAS using the Fingerprint
+  # 3. Search for existing cert in Alibaba CAS using the Fingerprint. Strip ANSI from stderr.
   # Note: OrderType=UPLOAD ensures we only look at certs you uploaded manually
-  EXISTING_JSON=$(aliyun cas ListUserCertificateOrder --region "${ALIBABA_REGION_ID}" --OrderType UPLOAD --Status ISSUED) || {
+  EXISTING_JSON=$(aliyun cas ListUserCertificateOrder --region "${ALIBABA_REGION_ID}" --OrderType UPLOAD --Status ISSUED 2> >(sed 's/\x1b\[[0-9;]*m//g' >&2)) || {
     echo "ERROR: aliyun ListUserCertificateOrder failed. Check RRSA/credentials and region." >&2
     exit 1
   }
@@ -72,7 +72,7 @@ else
       --region "${ALIBABA_REGION_ID}" \
       --CertName "${NEW_CERT_NAME}" \
       --CertContent "$(cat /tmp/tls.crt)" \
-      --CertKey "$(cat /tmp/tls.key)") || {
+      --CertKey "$(cat /tmp/tls.key)" 2> >(sed 's/\x1b\[[0-9;]*m//g' >&2)) || {
       echo "ERROR: aliyun CreateCerts failed. Check RRSA/credentials and permissions." >&2
       exit 1
     }
@@ -90,12 +90,14 @@ else
   # 4. Construct WAF-specific Certificate ID (e.g., "xxxx-cn-hangzhou")
   WAF_CERT_ID="${CERT_ID}-${ALIBABA_REGION_ID}"
 
-  # 5. Build WAF Listen JSON payload (defaults for optional listener settings)
+  # 5. Build WAF Listen JSON payload. ResourceProduct (e.g. clb4) and Port are required by the API.
   TLS_VERSION="${TLS_VERSION:-tlsv1.2}"
   ENABLE_TLS_V3="${ENABLE_TLS_V3:-true}"
   CIPHER_SUITE="${CIPHER_SUITE:-2}"
   PROTOCOL="${PROTOCOL:-https}"
   HTTP2_ENABLED="${HTTP2_ENABLED:-true}"
+  RESOURCE_PRODUCT="${RESOURCE_PRODUCT:-clb4}"
+  PORT="${PORT:-443}"
   LISTEN_JSON=$(jq -n \
     --arg tls "$TLS_VERSION" \
     --argjson tls3 "$ENABLE_TLS_V3" \
@@ -104,6 +106,8 @@ else
     --arg cert "$WAF_CERT_ID" \
     --argjson h2 "$HTTP2_ENABLED" \
     --arg clb "$ALIBABA_CLB_ID" \
+    --arg product "$RESOURCE_PRODUCT" \
+    --argjson port "$PORT" \
     '{
       TLSVersion: $tls,
       EnableTLSv3: $tls3,
@@ -111,17 +115,19 @@ else
       Protocol: $proto,
       Certificates: [{CertificateId: $cert, AppliedType: "default"}],
       Http2Enabled: $h2,
-      ResourceInstanceId: $clb
+      ResourceProduct: $product,
+      ResourceInstanceId: $clb,
+      Port: $port
     }')
 
-  # 6. Execute WAF Update using waf-openapi
+  # 6. Execute WAF Update using waf-openapi. Strip ANSI from aliyun stderr so shell-operator JSON log does not break.
   echo "Updating WAF Cloud Resource for CLB: ${ALIBABA_CLB_ID}..."
   aliyun waf-openapi ModifyCloudResource \
     --region "${ALIBABA_REGION_ID}" \
     --RegionId "${ALIBABA_REGION_ID}" \
     --InstanceId "${ALIBABA_WAF_INSTANCE_ID}" \
-    --Listen "$LISTEN_JSON" || {
-    echo "ERROR: aliyun ModifyCloudResource failed. Check RRSA/credentials and WAF/CLB IDs." >&2
+    --Listen "$LISTEN_JSON" 2> >(sed 's/\x1b\[[0-9;]*m//g' >&2) || {
+    echo "ERROR: aliyun ModifyCloudResource failed. Check RRSA/credentials, WAF/CLB IDs, ResourceProduct and Port." >&2
     exit 1
   }
 
