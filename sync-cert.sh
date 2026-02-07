@@ -15,6 +15,35 @@ kubernetes:
   executeHookOnEvent: [ "Added", "Modified" ]
 EOF
 else
+  set -euo pipefail
+  # Avoid ANSI escape codes in output so shell-operator JSON logging does not break
+  export TERM=dumb
+
+  # Configure Alibaba Cloud CLI with RRSA (OIDC). Prefer ACK-injected env vars
+  # (ALIBABA_CLOUD_*) from ack-pod-identity-webhook; fall back to manual ALIBABA_* names.
+  # See: https://www.alibabacloud.com/help/en/ack/ack-managed-and-ack-dedicated/user-guide/use-rrsa-to-authorize-pods-to-access-different-cloud-services
+  OIDC_PROVIDER_ARN="${ALIBABA_CLOUD_OIDC_PROVIDER_ARN:-${ALIBABA_OIDC_PROVIDER_ARN:-}}"
+  RAM_ROLE_ARN="${ALIBABA_CLOUD_ROLE_ARN:-${ALIBABA_RAM_ROLE_ARN:-}}"
+  OIDC_TOKEN_FILE="${ALIBABA_CLOUD_OIDC_TOKEN_FILE:-${ALIBABA_OIDC_TOKEN_FILE:-}}"
+  if [[ -n "$OIDC_PROVIDER_ARN" && -n "$RAM_ROLE_ARN" && -n "$OIDC_TOKEN_FILE" ]]; then
+    PROFILE="${ALIBABA_OIDC_PROFILE:-default}"
+    REGION="${ALIBABA_REGION_ID:-cn-hangzhou}"
+    ROLE_SESSION_NAME="${ALIBABA_ROLE_SESSION_NAME:-cert-sync}"
+    if [[ ! -f "$OIDC_TOKEN_FILE" ]]; then
+      echo "ERROR: OIDC token file not found: ${OIDC_TOKEN_FILE}" >&2
+      exit 1
+    fi
+    aliyun configure set \
+      --profile "${PROFILE}" \
+      --mode OIDC \
+      --oidc-provider-arn "${OIDC_PROVIDER_ARN}" \
+      --oidc-token-file "${OIDC_TOKEN_FILE}" \
+      --ram-role-arn "${RAM_ROLE_ARN}" \
+      --role-session-name "${ROLE_SESSION_NAME}" \
+      --region "${REGION}"
+    export ALIBABA_CLI_PROFILE="${PROFILE}"
+  fi
+
   echo "--- Start Sync: Secret ${SYNC_SECRET_NAMESPACE}/${SYNC_SECRET_NAME} ---"
 
   # 1. Fetch Secret
@@ -27,22 +56,32 @@ else
 
   # 3. Search for existing cert in Alibaba CAS using the Fingerprint
   # Note: OrderType=UPLOAD ensures we only look at certs you uploaded manually
-  EXISTING_JSON=$(aliyun cas ListUserCertificateOrder --region "${ALIBABA_REGION_ID}" --OrderType UPLOAD --Status ISSUED)
-  
+  EXISTING_JSON=$(aliyun cas ListUserCertificateOrder --region "${ALIBABA_REGION_ID}" --OrderType UPLOAD --Status ISSUED) || {
+    echo "ERROR: aliyun ListUserCertificateOrder failed. Check RRSA/credentials and region." >&2
+    exit 1
+  }
+
   # Use jq to find the CertificateId matching our local fingerprint
   CERT_ID=$(echo "$EXISTING_JSON" | jq -r --arg fp "$LOCAL_FP" '.CertificateOrderList[] | select(.Fingerprint == $fp) | .CertificateId' | head -n 1)
 
   if [ -z "$CERT_ID" ] || [ "$CERT_ID" == "null" ]; then
     NEW_CERT_NAME="${CERT_NAME_PREFIX}-$(date +%Y-%m-%d)"
     echo "No matching cert found. Uploading as: ${NEW_CERT_NAME}..."
-    
+
     UPLOAD_RES=$(aliyun waf-openapi CreateCerts \
       --region "${ALIBABA_REGION_ID}" \
       --CertName "${NEW_CERT_NAME}" \
       --CertContent "$(cat /tmp/tls.crt)" \
-      --CertKey "$(cat /tmp/tls.key)")
-    
+      --CertKey "$(cat /tmp/tls.key)") || {
+      echo "ERROR: aliyun CreateCerts failed. Check RRSA/credentials and permissions." >&2
+      exit 1
+    }
+
     CERT_ID=$(echo "$UPLOAD_RES" | jq -r '.CertId')
+    if [ -z "$CERT_ID" ] || [ "$CERT_ID" == "null" ]; then
+      echo "ERROR: CreateCerts did not return a valid CertId. Output: ${UPLOAD_RES}" >&2
+      exit 1
+    fi
     echo "Uploaded successfully. New ID: ${CERT_ID}"
   else
     echo "Matching certificate found in CAS. ID: ${CERT_ID}"
@@ -77,7 +116,10 @@ else
     --region "${ALIBABA_REGION_ID}" \
     --RegionId "${ALIBABA_REGION_ID}" \
     --InstanceId "${ALIBABA_WAF_INSTANCE_ID}" \
-    --Listen "$LISTEN_JSON"
+    --Listen "$LISTEN_JSON" || {
+    echo "ERROR: aliyun ModifyCloudResource failed. Check RRSA/credentials and WAF/CLB IDs." >&2
+    exit 1
+  }
 
   echo "Sync process finished successfully."
 fi

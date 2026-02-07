@@ -105,6 +105,8 @@ roleRef:
 
 Apply the deployment (ensure `pod-identity.alibabacloud.com/injection: "on"` is set to enable RRSA).
 
+**RRSA (OIDC):** With the label `pod-identity.alibabacloud.com/injection: "on"`, the [ack-pod-identity-webhook](https://www.alibabacloud.com/help/en/ack/ack-managed-and-ack-dedicated/user-guide/use-rrsa-to-authorize-pods-to-access-different-cloud-services) automatically injects `ALIBABA_CLOUD_ROLE_ARN`, `ALIBABA_CLOUD_OIDC_PROVIDER_ARN`, `ALIBABA_CLOUD_OIDC_TOKEN_FILE` (and related env vars) and mounts the OIDC token. The sync hook reads these, so you do **not** need to set RRSA env vars in the deployment when using the webhook—just annotate the ServiceAccount with `pod-identity.alibabacloud.com/role-name: <role_name>` as in step 1. For manual setup (no webhook), set `ALIBABA_OIDC_PROVIDER_ARN`, `ALIBABA_RAM_ROLE_ARN`, and `ALIBABA_OIDC_TOKEN_FILE` explicitly.
+
 ```yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -122,6 +124,15 @@ spec:
         - name: shell-operator
           image: ghcr.io/daxingplay/alibabacloud-ack-waf-cert-sync-operator:latest
           env:
+            # RRSA env vars are auto-injected by ack-pod-identity-webhook when injection is "on".
+            # Optional overrides when not using webhook:
+            # - name: ALIBABA_OIDC_PROVIDER_ARN
+            #   value: "acs:ram::012345678910****:oidc-provider/ack-rrsa-xxx"
+            # - name: ALIBABA_RAM_ROLE_ARN
+            #   value: "acs:ram::012345678910****:role/your-rrsa-role"
+            # - name: ALIBABA_OIDC_TOKEN_FILE
+            #   value: "/var/run/secrets/ack.alibabacloud.com/rrsa-tokens/token"
+            # --- Sync target ---
             - name: SYNC_SECRET_NAME
               value: "your_secret_name"
             - name: SYNC_SECRET_NAMESPACE
@@ -147,6 +158,23 @@ spec:
 ---
 
 ## ⚙️ Configuration Parameters
+
+### RRSA (OIDC) – authentication
+
+When using **ack-pod-identity-webhook** with `pod-identity.alibabacloud.com/injection: "on"`, these are **auto-injected**; you only need to annotate the ServiceAccount with the role name.
+
+| Variable | Description | Example |
+| --- | --- | --- |
+| `ALIBABA_CLOUD_OIDC_PROVIDER_ARN` | (Injected) OIDC identity provider ARN | `acs:ram::123456789:oidc-provider/ack-rrsa-xxx` |
+| `ALIBABA_CLOUD_ROLE_ARN` | (Injected) RAM role ARN to assume | `acs:ram::123456789:role/your-rrsa-role` |
+| `ALIBABA_CLOUD_OIDC_TOKEN_FILE` | (Injected) Path to OIDC token file | `/var/run/secrets/ack.alibabacloud.com/rrsa-tokens/token` |
+| `ALIBABA_OIDC_PROVIDER_ARN` | (Manual) Same as above, when not using webhook | — |
+| `ALIBABA_RAM_ROLE_ARN` | (Manual) Same as above | — |
+| `ALIBABA_OIDC_TOKEN_FILE` | (Manual) Same as above | — |
+| `ALIBABA_ROLE_SESSION_NAME` | Session name for AssumeRole (2–64 chars, optional) | `cert-sync` |
+| `ALIBABA_OIDC_PROFILE` | aliyun CLI profile name (optional) | `default` |
+
+### Sync and WAF
 
 | Variable | Description | Example |
 | --- | --- | --- |
